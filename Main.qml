@@ -492,11 +492,23 @@ ApplicationWindow {
             console.log("Cannot open full screen: no camera ID")
             return
         }
-        
+        // Find tile index that uses this cameraId (if any)
+        var tileIndex = -1
+        for (var i = 0; i < cameraTilesModel.count; i++) {
+            if (cameraTilesModel.get(i).cameraId === cameraId) {
+                tileIndex = i
+                break
+            }
+        }
+          if (tileIndex !== -1) {
+            cameraTilesModel.setProperty(tileIndex, "isActive", false)
+        }
+
         // Close existing full-screen window if any
         if (fullScreenWindow) {
             fullScreenWindow.close()
             fullScreenWindow.destroy()
+            fullScreenWindow = null
         }
         
         // Create and show full-screen window
@@ -509,6 +521,10 @@ ApplicationWindow {
             if (fullScreenWindow) {
                 fullScreenWindow.show()
                 fullScreenWindow.closing.connect(function() {
+                    // Only restart if the tile still has the same camera assigned
+                    if ((tileIndex !== -1) && (cameraTilesModel.get(tileIndex).cameraId === cameraId)) {
+                        cameraTilesModel.setProperty(tileIndex, "isActive", true)
+                    }
                     fullScreenWindow.destroy()
                     fullScreenWindow = null
                 })
