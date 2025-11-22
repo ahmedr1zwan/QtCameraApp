@@ -128,5 +128,18 @@ Window {
             acceptedButtons: Qt.NoButton
             onClicked: rootItem.focus = true  // Regain focus on click
         }
+
+        // Object detection processor
+        VideoOutput {
+            id: videoOutput
+            anchors.fill: parent
+            fillMode: VideoOutput.PreserveAspectFit
+
+            onFrameAvailable: {
+                // Convert the frame to a format suitable for processing
+                var frame = videoOutput.videoFrame; // Assuming you have a way to get the frame
+                objectDetector.processFrame(frame);
+            }
+        }
     }
 }

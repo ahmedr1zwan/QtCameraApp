@@ -90,6 +90,27 @@ ApplicationWindow {
         
         property int tileIndex: -1
     }
+
+    // Object Detection Instance
+    ObjectDetection {
+        id: objectDetector
+        onDetectionsReady: function(boxes, classIds) {
+            // Handle detections (e.g., draw boxes on the camera feed)
+            for (var i = 0; i < boxes.length; i++) {
+                console.log("Detected class ID:", classIds[i], "at", boxes[i]);
+                // You can emit signals to update the UI or draw boxes in QML
+            }
+        }
+    }
+
+    // Initialize Object Detection Model
+    Component.onCompleted: {
+        if (objectDetector.loadModel("path/to/yolov8n.onnx")) {
+            console.log("Model loaded successfully");
+        } else {
+            console.log("Failed to load model");
+        }
+    }
     
     // Alert log dialog
     Dialog {

@@ -5,6 +5,9 @@ project(QtCameraApp VERSION 0.1 LANGUAGES CXX)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# set path to your OpenCV build
+set(OpenCV_DIR "C:\\Users\\hanna\\Downloads\\opencv\\build")
+find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Quick Multimedia QuickControls2)
 
 
