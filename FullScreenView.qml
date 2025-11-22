@@ -10,6 +10,8 @@ Window {
     flags: Qt.Window | Qt.FramelessWindowHint
     visibility: Window.FullScreen
     color: "black"
+    width: Screen.width
+    height: Screen.height
     
     // Root item to handle focus and keys
     Item {
