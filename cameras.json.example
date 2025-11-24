@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "cameras": [
+    {
+      "name": "Front Door Camera",
+      "url": "",
+      "deviceId": "6C707041-05AC-0011-0002-000000000001",
+      "enabled": true
+    },
+    {
+      "name": "Backyard Camera",
+      "url": "rtsp://192.168.1.100:554/stream",
+      "deviceId": "",
+      "enabled": true
+    },
+    {
+      "name": "Living Room",
+      "url": "",
+      "deviceId": "0x312000015320e03",
+      "enabled": true
+    }
+  ]
+}
+

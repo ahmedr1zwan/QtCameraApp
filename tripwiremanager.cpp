@@ -152,20 +152,33 @@ bool TripwireManager::checkTripwireCrossing(const QString &tripwireId, const QPo
     QPointF intersection;
     
     // Check if movement line crosses tripwire line
-    // Use BoundedIntersection to ensure the crossing is within both line segments
+    // Accept both bounded and unbounded intersections for better detection
     if (lineIntersection(from, to, tripwire.startPoint, tripwire.endPoint, intersection)) {
-        // Cooldown: prevent multiple alerts within 1.5 seconds (reduced from 2s for better responsiveness)
-        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
-        qint64 timeSinceLastCross = currentTime - m_tripwires[index].lastCrossTime;
+        // Verify intersection is reasonable (within reasonable bounds of tripwire)
+        QLineF tripwireLine(tripwire.startPoint, tripwire.endPoint);
+        double tripwireLength = tripwireLine.length();
         
-        if (timeSinceLastCross > 1500) {  // 1.5 second cooldown
-            m_tripwires[index].crossCount++;
-            m_tripwires[index].lastCrossTime = currentTime;
-            emit tripwireCrossed(tripwireId, intersection);
-            qDebug() << "Tripwire crossed:" << tripwireId << "at" << intersection << "from" << from << "to" << to;
-            return true;
-        } else {
-            qDebug() << "Tripwire crossing ignored (cooldown):" << tripwireId << "time since last:" << timeSinceLastCross;
+        // Calculate distance from intersection to tripwire start/end
+        double distToStart = QLineF(tripwire.startPoint, intersection).length();
+        double distToEnd = QLineF(tripwire.endPoint, intersection).length();
+        
+        // Accept if intersection is within tripwire segment or very close (within 20% extension)
+        bool withinBounds = (distToStart <= tripwireLength * 1.2 && distToEnd <= tripwireLength * 1.2);
+        
+        if (withinBounds) {
+            // Cooldown: prevent multiple alerts within 1 second
+            qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+            qint64 timeSinceLastCross = currentTime - m_tripwires[index].lastCrossTime;
+            
+            if (timeSinceLastCross > 1000) {  // 1 second cooldown
+                m_tripwires[index].crossCount++;
+                m_tripwires[index].lastCrossTime = currentTime;
+                emit tripwireCrossed(tripwireId, intersection);
+                qDebug() << "Tripwire crossed:" << tripwireId << "at" << intersection << "from" << from << "to" << to;
+                return true;
+            } else {
+                qDebug() << "Tripwire crossing ignored (cooldown):" << tripwireId << "time since last:" << timeSinceLastCross;
+            }
         }
     }
     
@@ -208,7 +221,7 @@ bool TripwireManager::checkTripwireProximity(const QString &tripwireId, const QP
         qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
         qint64 timeSinceLastCross = currentTime - m_tripwires[index].lastCrossTime;
         
-        if (timeSinceLastCross > 1500) {
+        if (timeSinceLastCross > 1000) {  // 1 second cooldown
             m_tripwires[index].crossCount++;
             m_tripwires[index].lastCrossTime = currentTime;
             emit tripwireCrossed(tripwireId, closestPoint);
@@ -229,17 +242,26 @@ bool TripwireManager::checkROIEntry(const QString &roiId, const QPointF &point)
     ROI &roi = m_rois[index];
     bool isInside = pointInPolygon(point, roi.polygon);
     
+    // Debug: log ROI checks periodically
+    static qint64 lastDebugTime = 0;
+    qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+    if (currentTime - lastDebugTime > 2000) {  // Debug every 2 seconds
+        qDebug() << "ROI check:" << roiId << "point:" << point << "inside:" << isInside << "motionInside:" << roi.motionInside;
+        lastDebugTime = currentTime;
+    }
+    
     if (isInside && !roi.motionInside) {
-        // Cooldown: prevent multiple alerts within 1.5 seconds (reduced for better responsiveness)
-        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+        // Reduced cooldown for better responsiveness
         qint64 timeSinceLastEntry = currentTime - m_rois[index].lastEntryTime;
         
-        if (timeSinceLastEntry > 1500) {  // 1.5 second cooldown
+        if (timeSinceLastEntry > 500) {  // 0.5 second cooldown for better responsiveness
             roi.motionInside = true;
             m_rois[index].lastEntryTime = currentTime;
             emit roiEntered(roiId, point);
-            qDebug() << "ROI entered:" << roiId << "at" << point;
+            qDebug() << "✓ ROI entered:" << roiId << "at" << point;
             return true;
+        } else {
+            qDebug() << "ROI entry ignored (cooldown):" << roiId << "time since last:" << timeSinceLastEntry;
         }
     } else if (!isInside && roi.motionInside) {
         roi.motionInside = false;
@@ -257,6 +279,16 @@ bool TripwireManager::isPointInROI(const QString &roiId, const QPointF &point)
         return false;
     
     return pointInPolygon(point, m_rois[index].polygon);
+}
+
+void TripwireManager::resetROIState(const QString &roiId)
+{
+    int index = findROIIndex(roiId);
+    if (index >= 0) {
+        m_rois[index].motionInside = false;
+        m_rois[index].lastEntryTime = 0;
+        qDebug() << "ROI state reset:" << roiId;
+    }
 }
 
 QVariantList TripwireManager::getAllTripwires(const QString &tileId)
@@ -310,7 +342,9 @@ bool TripwireManager::lineIntersection(const QPointF &p1, const QPointF &p2,
     QLineF line2(p3, p4);
     
     QLineF::IntersectType type = line1.intersects(line2, &intersection);
-    return type == QLineF::BoundedIntersection;
+    // Accept both bounded and unbounded intersections for better detection
+    // Unbounded allows detection even if movement extends beyond tripwire segment
+    return (type == QLineF::BoundedIntersection || type == QLineF::UnboundedIntersection);
 }
 
 bool TripwireManager::pointInPolygon(const QPointF &point, const QPolygonF &polygon)

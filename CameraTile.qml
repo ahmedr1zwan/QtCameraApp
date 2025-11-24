@@ -17,6 +17,21 @@ Rectangle {
     property bool deleteMode: false  // Enable delete mode to remove tripwires/ROIs
     property var tileTripwireManager: null  // Will be set from parent
     
+    // Dark Blue Theme Colors (matching Main.qml)
+    readonly property color colorPrimary: "#1a2332"
+    readonly property color colorSecondary: "#2d3a4f"
+    readonly property color colorAccent: "#4a90e2"
+    readonly property color colorAccentLight: "#5ba3f5"
+    readonly property color colorText: "#e8f0f8"
+    readonly property color colorTextSecondary: "#b0c4de"
+    readonly property color colorBorder: "#3d4f66"
+    readonly property color colorHover: "#3a4d6b"
+    readonly property color colorSuccess: "#52c9a2"
+    readonly property color colorWarning: "#f5a623"
+    readonly property color colorError: "#e74c3c"
+    readonly property color colorCard: "#253447"
+    readonly property color colorCardAlt: "#1e2a3a"
+    
     signal removeRequested()
     signal fullScreenRequested()
     signal addCameraRequested(int index)
@@ -77,8 +92,8 @@ Rectangle {
         }
     }
     
-    color: "#2a2a2a"
-    border.color: motionDetector.motionDetected ? "#ff4444" : "#4a4a4a"
+    color: colorCard
+    border.color: motionDetector.motionDetected ? colorError : colorBorder
     border.width: motionDetector.motionDetected ? 3 : 1
     radius: 8
     
@@ -86,7 +101,7 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         color: "transparent"
-        border.color: "#ef4444"
+        border.color: colorError
         border.width: 3
         radius: 8
         visible: motionDetector.motionDetected
@@ -177,14 +192,7 @@ Rectangle {
     // Image capture for snapshots
     ImageCapture {
         id: imageCapture
-        onImageSaved: function(id, path) {
-            console.log("Snapshot saved:", path)
-            snapshotSaved(path)
-        }
-        onErrorOccurred: function(id, error, errorString) {
-            console.log("Snapshot error:", errorString)
-            snapshotError(errorString)
-        }
+        // Signal handlers are in Connections element above to avoid duplication
     }
     
     // Capture session
@@ -194,6 +202,11 @@ Rectangle {
         videoOutput: videoOutput
         imageCapture: imageCapture
     }
+    
+    // Properties for tripwire/ROI detection
+    // Use (-1, -1) as sentinel for "no motion" to avoid conflict with top-left corner (0, 0)
+    property var previousCentroid: Qt.point(-1, -1)
+    property var lastCheckTime: 0
     
     // Motion detector
     MotionDetector {
@@ -206,29 +219,21 @@ Rectangle {
             tile.motionDetected(level)
         }
         
-        property var previousCentroid: Qt.point(0, 0)
-        
         onMotionCentroidChanged: function(x, y) {
-            // Check tripwire/ROI when motion is detected (with some filtering to prevent noise)
-            // Relaxed conditions: only require motionDetected (which already has sensitivity threshold)
-            if (tileTripwireManager && motionDetected) {
-                var currentPoint = Qt.point(x, y)
-                var prevPoint = previousCentroid
-                
+            // Update previous centroid for line crossing detection
+            var currentPoint = Qt.point(x, y)
+            
+            // Use (-1, -1) as sentinel for "no motion" to avoid conflict with top-left corner (0, 0)
+            if (tileTripwireManager && !(currentPoint.x === -1 && currentPoint.y === -1)) {
                 var tileId = "tile_" + tile.tileIndex
-                var tripwires = tileTripwireManager.getAllTripwires(tileId)
                 
-                // Check tripwires using two methods for better detection:
-                // 1. Line crossing (for faster movements)
-                // 2. Proximity check (for slow movements that might miss the crossing)
-                if ((prevPoint.x > 0 || prevPoint.y > 0)) {
-                    // Method 1: Check if movement line crosses tripwire (for any movement, even tiny)
-                    var dx = currentPoint.x - prevPoint.x
-                    var dy = currentPoint.y - prevPoint.y
-                    var distance = Math.sqrt(dx * dx + dy * dy)
+                // Check line crossing for tripwires (catches fast movements)
+                // Only if motion detection is enabled and motion is detected
+                // Check that previous centroid is valid (not sentinel value)
+                if (tile.motionDetectionEnabled && motionDetected && !(tile.previousCentroid.x === -1 && tile.previousCentroid.y === -1)) {
+                    var prevPoint = tile.previousCentroid
+                    var tripwires = tileTripwireManager.getAllTripwires(tileId)
                     
-                    // Check crossing even for very small movements (removed threshold)
-                    // The cooldown will prevent spam
                     for (var i = 0; i < tripwires.length; i++) {
                         var tw = tripwires[i]
                         if (tw.enabled) {
@@ -239,19 +244,8 @@ Rectangle {
                     }
                 }
                 
-                // Method 2: Proximity check - if current point is very close to tripwire line
-                // This catches slow-moving objects that might have "missed" the crossing
-                for (var i = 0; i < tripwires.length; i++) {
-                    var tw = tripwires[i]
-                    if (tw.enabled) {
-                        // Use proximity check with 2% threshold (very close to line)
-                        if (tileTripwireManager.checkTripwireProximity(tw.id, currentPoint, 0.02)) {
-                            tile.tripwireCrossed(tw.id)
-                        }
-                    }
-                }
-                
-                // Check all ROIs for this tile (always check when motion detected)
+                // Check ROIs immediately when centroid changes - ROI works independently
+                // This ensures ROI detection works even with slow movements
                 var rois = tileTripwireManager.getAllROIs(tileId)
                 for (var j = 0; j < rois.length; j++) {
                     var roi = rois[j]
@@ -261,9 +255,54 @@ Rectangle {
                         }
                     }
                 }
+            }
+            
+            // Always update previous centroid
+            tile.previousCentroid = currentPoint
+        }
+    }
+    
+    // Timer to continuously check tripwires/ROIs when motion is active
+    // Check ROI even when motion is below threshold - ROI should work independently
+    Timer {
+        id: tripwireCheckTimer
+        interval: 100  // Check every 100ms when there's any motion
+        running: camera.active && motionDetector.motionLevel > 0.01  // Run on any motion, not just above threshold
+        repeat: true
+        onTriggered: {
+            // Get current centroid from motion detector
+            var centroid = motionDetector.motionCentroid
+            // Check that centroid is not the sentinel value (-1, -1) - valid centroids can be at edges (x=0 or y=0)
+            if (tileTripwireManager && !(centroid.x === -1 && centroid.y === -1)) {
+                var currentPoint = Qt.point(centroid.x, centroid.y)
+                var tileId = "tile_" + tile.tileIndex
                 
-                // Always update previous centroid for next check
-                previousCentroid = currentPoint
+                // Check all tripwires with proximity (more reliable for slow movements)
+                // Only check if motion detection is enabled
+                if (tile.motionDetectionEnabled) {
+                    var tripwires = tileTripwireManager.getAllTripwires(tileId)
+                    for (var i = 0; i < tripwires.length; i++) {
+                        var tw = tripwires[i]
+                        if (tw.enabled) {
+                            // Use larger proximity threshold (5% of screen) for better detection
+                            if (tileTripwireManager.checkTripwireProximity(tw.id, currentPoint, 0.05)) {
+                                tile.tripwireCrossed(tw.id)
+                            }
+                        }
+                    }
+                }
+                
+                // Check all ROIs - ROI works independently of motion detection toggle
+                // This allows ROI to work even when motion detection is disabled
+                var rois = tileTripwireManager.getAllROIs(tileId)
+                for (var j = 0; j < rois.length; j++) {
+                    var roi = rois[j]
+                    if (roi.enabled) {
+                        if (tileTripwireManager.checkROIEntry(roi.id, currentPoint)) {
+                            tile.roiEntered(roi.id)
+                        }
+                    }
+                }
             }
         }
     }
@@ -376,8 +415,8 @@ Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             height: 45
-            color: "#1e1e1e"
-            border.color: "#3a3a3a"
+            color: colorSecondary
+            border.color: colorBorder
             border.width: 1
             visible: true  // Always visible, not hover-based
             z: 300  // Ensure controls are always clickable
@@ -391,7 +430,7 @@ Rectangle {
                 
                 Text {
                     text: cameraName
-                    color: "#ffffff"
+                    color: colorText
                     font.pixelSize: 15
                     font.bold: true
                 }
@@ -400,14 +439,14 @@ Rectangle {
                     width: 8
                     height: 8
                     radius: 4
-                    color: camera.active ? "#4ade80" : "#6b7280"
+                    color: camera.active ? colorSuccess : colorTextSecondary
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 
                 Text {
                     visible: camera.active && currentFps > 0
                     text: currentFps + " FPS"
-                    color: currentFps >= 25 ? "#4ade80" : (currentFps >= 15 ? "#fbbf24" : "#f97316")
+                    color: currentFps >= 25 ? colorSuccess : (currentFps >= 15 ? colorWarning : colorError)
                     font.pixelSize: 12
                     font.bold: true
                 }
@@ -427,15 +466,15 @@ Rectangle {
                     width: 36
                     height: 32
                     background: Rectangle {
-                        color: motionDetectionEnabled ? "#ef4444" : (parent.pressed ? "#4a4a4a" : "#3a3a3a")
+                        color: motionDetectionEnabled ? colorError : (parent.pressed ? colorHover : colorCard)
                         radius: 4
-                        border.color: motionDetectionEnabled ? "#dc2626" : "#5a5a5a"
+                        border.color: motionDetectionEnabled ? colorError : colorBorder
                         border.width: 1
                     }
                     contentItem: Text {
                         text: "🔴"
                         font.pixelSize: 14
-                        color: "white"
+                        color: colorText
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -450,15 +489,15 @@ Rectangle {
                     width: 36
                     height: 32
                     background: Rectangle {
-                        color: tripwireDrawingMode ? "#10b981" : (parent.pressed ? "#4a4a4a" : "#3a3a3a")
+                        color: tripwireDrawingMode ? colorSuccess : (parent.pressed ? colorHover : colorCard)
                         radius: 4
-                        border.color: tripwireDrawingMode ? "#059669" : "#5a5a5a"
+                        border.color: tripwireDrawingMode ? colorSuccess : colorBorder
                         border.width: 1
                     }
                     contentItem: Text {
                         text: "─"
                         font.pixelSize: 16
-                        color: "white"
+                        color: colorText
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -482,15 +521,15 @@ Rectangle {
                     width: 36
                     height: 32
                     background: Rectangle {
-                        color: roiDrawingMode ? "#3b82f6" : (parent.pressed ? "#4a4a4a" : "#3a3a3a")
+                        color: roiDrawingMode ? colorAccent : (parent.pressed ? colorHover : colorCard)
                         radius: 4
-                        border.color: roiDrawingMode ? "#2563eb" : "#5a5a5a"
+                        border.color: roiDrawingMode ? colorAccent : colorBorder
                         border.width: 1
                     }
                     contentItem: Text {
                         text: "▢"
                         font.pixelSize: 16
-                        color: "white"
+                        color: colorText
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -514,15 +553,15 @@ Rectangle {
                     width: 36
                     height: 32
                     background: Rectangle {
-                        color: deleteMode ? "#f59e0b" : (parent.pressed ? "#4a4a4a" : "#3a3a3a")
+                        color: deleteMode ? colorWarning : (parent.pressed ? colorHover : colorCard)
                         radius: 4
-                        border.color: deleteMode ? "#d97706" : "#5a5a5a"
+                        border.color: deleteMode ? colorWarning : colorBorder
                         border.width: 1
                     }
                     contentItem: Text {
                         text: "✂️"
                         font.pixelSize: 14
-                        color: "white"
+                        color: colorText
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -546,15 +585,15 @@ Rectangle {
                     width: 36
                     height: 32
                     background: Rectangle {
-                        color: parent.pressed ? "#4a4a4a" : "#3a3a3a"
+                        color: parent.pressed ? colorHover : colorCard
                         radius: 4
-                        border.color: "#5a5a5a"
+                        border.color: colorBorder
                         border.width: 1
                     }
                     contentItem: Text {
                         text: "📷"
                         font.pixelSize: 14
-                        color: "white"
+                        color: colorText
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -569,15 +608,15 @@ Rectangle {
                     width: 36
                     height: 32
                     background: Rectangle {
-                        color: parent.pressed ? "#4a4a4a" : "#3a3a3a"
+                        color: parent.pressed ? colorHover : colorCard
                         radius: 4
-                        border.color: "#5a5a5a"
+                        border.color: colorBorder
                         border.width: 1
                     }
                     contentItem: Text {
                         text: "⛶"
                         font.pixelSize: 14
-                        color: "white"
+                        color: colorText
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -591,15 +630,16 @@ Rectangle {
                     width: 36
                     height: 32
                     background: Rectangle {
-                        color: parent.pressed ? "#7f1d1d" : "#991b1b"
+                        color: parent.pressed ? colorError : colorError
                         radius: 4
-                        border.color: "#dc2626"
+                        border.color: colorError
                         border.width: 1
+                        opacity: parent.pressed ? 0.8 : 1.0
                     }
                     contentItem: Text {
                         text: "✕"
                         font.pixelSize: 16
-                        color: "white"
+                        color: colorText
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -618,8 +658,8 @@ Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             height: 40
-            color: "#1e1e1e"
-            border.color: "#3a3a3a"
+            color: colorSecondary
+            border.color: colorBorder
             border.width: 1
             visible: true  // Always visible
             
@@ -631,13 +671,13 @@ Rectangle {
                 
                 Text {
                     text: "Status:"
-                    color: "#9ca3af"
+                    color: colorTextSecondary
                     font.pixelSize: 11
                 }
                 
                 Text {
                     text: camera.active ? "Active" : "Inactive"
-                    color: camera.active ? "#4ade80" : "#6b7280"
+                    color: camera.active ? colorSuccess : colorTextSecondary
                     font.pixelSize: 11
                     font.bold: true
                 }
@@ -645,7 +685,7 @@ Rectangle {
                 Text {
                     visible: motionDetectionEnabled && motionDetector.motionLevel > 0
                     text: "• Motion: " + Math.round(motionDetector.motionLevel * 100) + "%"
-                    color: motionDetector.motionDetected ? "#ef4444" : "#9ca3af"
+                    color: motionDetector.motionDetected ? colorError : colorTextSecondary
                     font.pixelSize: 11
                     font.bold: motionDetector.motionDetected
                 }
@@ -666,7 +706,7 @@ Rectangle {
                     
                     Text {
                         text: "Sensitivity: " + Math.round(motionSensitivity * 100) + "%"
-                        color: "#d1d5db"
+                        color: colorTextSecondary
                         font.pixelSize: 10
                     }
                     
@@ -688,7 +728,7 @@ Rectangle {
                             width: sensitivitySlider.availableWidth
                             height: implicitHeight
                             radius: 3
-                            color: "#374151"
+                            color: colorCardAlt
                         }
                         handle: Rectangle {
                             x: sensitivitySlider.leftPadding + sensitivitySlider.visualPosition * (sensitivitySlider.availableWidth - width)
@@ -696,8 +736,8 @@ Rectangle {
                             implicitWidth: 18  // Larger handle for easier clicking
                             implicitHeight: 18
                             radius: 9
-                            color: sensitivitySlider.pressed ? "#3b82f6" : "#60a5fa"
-                            border.color: "#2563eb"
+                            color: sensitivitySlider.pressed ? colorAccent : colorAccentLight
+                            border.color: colorAccent
                             border.width: 2
                         }
                         onValueChanged: tile.motionSensitivity = value
@@ -708,14 +748,14 @@ Rectangle {
                     width: 70
                     height: 28
                     background: Rectangle {
-                        color: camera.active ? "#dc2626" : "#10b981"
+                        color: camera.active ? colorError : colorSuccess
                         radius: 4
-                        border.color: camera.active ? "#b91c1c" : "#059669"
+                        border.color: camera.active ? colorError : colorSuccess
                         border.width: 1
                     }
                     contentItem: Text {
                         text: camera.active ? "Stop" : "Start"
-                        color: "white"
+                        color: colorText
                         font.pixelSize: 11
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
@@ -763,23 +803,41 @@ Rectangle {
     // Empty state
     Rectangle {
         anchors.fill: parent
-        color: "#1a1a1a"
+        color: colorCardAlt
+        border.color: colorBorder
+        border.width: 1
+        radius: 8
         visible: !cameraId || cameraId === ""
         
         Column {
             anchors.centerIn: parent
-            spacing: 10
+            spacing: 15
             
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "No Camera"
-                color: "#666666"
-                font.pixelSize: 16
+                text: "📷 No Camera"
+                color: colorTextSecondary
+                font.pixelSize: 18
+                font.bold: true
             }
             
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "Add Camera"
+                text: "➕ Add Camera"
+                background: Rectangle {
+                    color: parent.pressed ? colorHover : colorAccent
+                    radius: 5
+                    border.color: colorAccent
+                    border.width: 1
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: colorText
+                    font.pixelSize: 12
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
                 onClicked: {
                     tile.addCameraRequested(tile.tileIndex)
                 }

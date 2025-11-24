@@ -15,6 +15,7 @@ class MotionDetector : public QObject
     Q_PROPERTY(double sensitivity READ sensitivity WRITE setSensitivity NOTIFY sensitivityChanged)
     Q_PROPERTY(double motionLevel READ motionLevel NOTIFY motionLevelChanged)
     Q_PROPERTY(bool motionDetected READ motionDetected NOTIFY motionDetectedChanged)
+    Q_PROPERTY(QPointF motionCentroid READ motionCentroid NOTIFY motionCentroidChanged)
 
 public:
     explicit MotionDetector(QObject *parent = nullptr);

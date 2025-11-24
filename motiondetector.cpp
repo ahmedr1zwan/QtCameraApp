@@ -11,8 +11,8 @@ MotionDetector::MotionDetector(QObject *parent)
     , m_motionLevel(0.0)
     , m_motionDetected(false)
     , m_hasPreviousFrame(false)
-    , m_motionCentroid(0.0, 0.0)
-    , m_previousCentroid(0.0, 0.0)
+    , m_motionCentroid(-1.0, -1.0)  // Use (-1, -1) as sentinel for "no motion" to avoid conflict with top-left corner (0, 0)
+    , m_previousCentroid(-1.0, -1.0)
 {
     m_cooldownTimer = new QTimer(this);
     m_cooldownTimer->setSingleShot(true);
@@ -83,9 +83,10 @@ void MotionDetector::processFrame(const QVideoFrame &frame)
         emit motionLevelChanged();
     }
     
-    // Update centroid only if motion is significant (above threshold)
-    // This prevents false alerts from camera noise/flicker
-    if (motion >= m_sensitivity && centroid != QPointF(0, 0)) {
+    // Always emit centroid when there's motion (even if below threshold)
+    // This allows tripwire/ROI detection to work even with slow movements
+    // Use (-1, -1) as sentinel for "no motion" to avoid conflict with top-left corner (0, 0)
+    if (motion > 0.01 && centroid != QPointF(-1, -1)) {  // Any motion above 1%
         m_previousCentroid = m_motionCentroid;
         m_motionCentroid = centroid;
         emit motionCentroidChanged(centroid.x(), centroid.y());
@@ -150,7 +151,7 @@ double MotionDetector::calculateMotion(const QImage &current, const QImage &prev
 QPointF MotionDetector::calculateMotionCentroid(const QImage &current, const QImage &previous)
 {
     if (current.size() != previous.size())
-        return QPointF(0, 0);
+        return QPointF(-1, -1);  // Use (-1, -1) as sentinel for "no motion"
     
     // Resize images to smaller size for faster processing
     QSize smallSize(160, 120);
@@ -184,7 +185,7 @@ QPointF MotionDetector::calculateMotionCentroid(const QImage &current, const QIm
     }
     
     if (changedPixels == 0)
-        return QPointF(0, 0);
+        return QPointF(-1, -1);  // Use (-1, -1) as sentinel for "no motion"
     
     // Calculate centroid and normalize to 0.0-1.0
     double centroidX = (sumX / changedPixels) / width;

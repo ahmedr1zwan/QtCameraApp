@@ -9,6 +9,7 @@
 #include "motiondetector.h"
 #include "alertmanager.h"
 #include "tripwiremanager.h"
+#include "configmanager.h"
 
 int main(int argc, char *argv[])
 {
@@ -33,6 +34,9 @@ int main(int argc, char *argv[])
     // In a full implementation, each tile would have its own manager
     TripwireManager tripwireManager;
     
+    // Create config manager
+    ConfigManager configManager;
+    
     QQmlApplicationEngine engine;
     
     // Register types for QML
@@ -44,6 +48,10 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("snapshotHelper", &snapshotHelper);
     engine.rootContext()->setContextProperty("alertManager", &alertManager);
     engine.rootContext()->setContextProperty("tripwireManager", &tripwireManager);
+    engine.rootContext()->setContextProperty("configManager", &configManager);
+    
+    // Load camera config on startup
+    configManager.loadConfig();
     
     const QUrl url(QStringLiteral("qrc:/QtCameraApp/Main.qml"));
     QObject::connect(

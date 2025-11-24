@@ -10,6 +10,23 @@ ApplicationWindow {
     height: 900
     visible: true
     title: qsTr("Qt Camera Surveillance - Multi-Camera Grid")
+    
+    // Dark Blue Theme Colors
+    readonly property color colorPrimary: "#1a2332"      // Dark blue background
+    readonly property color colorSecondary: "#2d3a4f"    // Medium dark blue
+    readonly property color colorAccent: "#4a90e2"      // Bright blue accent
+    readonly property color colorAccentLight: "#5ba3f5" // Lighter blue
+    readonly property color colorText: "#e8f0f8"        // Light text
+    readonly property color colorTextSecondary: "#b0c4de" // Secondary text
+    readonly property color colorBorder: "#3d4f66"      // Border color
+    readonly property color colorHover: "#3a4d6b"      // Hover state
+    readonly property color colorSuccess: "#52c9a2"     // Success green
+    readonly property color colorWarning: "#f5a623"      // Warning orange
+    readonly property color colorError: "#e74c3c"      // Error red
+    readonly property color colorCard: "#253447"        // Card background
+    readonly property color colorCardAlt: "#1e2a3a"     // Alternate card
+    
+    color: colorPrimary
 
     // Camera tiles data model
     ListModel {
@@ -20,18 +37,21 @@ ApplicationWindow {
     Dialog {
         id: cameraSelectDialog
         title: "Select Camera"
-        width: 400
-        height: 300
+        width: 450
+        height: 350
         anchors.centerIn: parent
+        modal: true
         
         Column {
             anchors.fill: parent
-            spacing: 10
+            spacing: 15
+            anchors.margins: 15
             
             Text {
-                text: "Available Cameras:"
+                text: "📷 Available Cameras:"
                 font.bold: true
-                font.pixelSize: 14
+                font.pixelSize: 16
+                color: colorText
             }
             
             ListView {
@@ -44,7 +64,7 @@ ApplicationWindow {
                 delegate: Rectangle {
                     width: cameraListView.width
                     height: 40
-                    color: mouseArea.containsMouse ? "#333333" : "#222222"
+                    color: mouseArea.containsMouse ? colorHover : colorCard
                     
                     Row {
                         anchors.left: parent.left
@@ -54,7 +74,7 @@ ApplicationWindow {
                         
                         Text {
                             text: model.description || "Unknown Camera"
-                            color: "white"
+                            color: colorText
                             font.pixelSize: 12
                         }
                     }
@@ -98,10 +118,12 @@ ApplicationWindow {
         width: 800
         height: 600
         anchors.centerIn: parent
+        modal: true
         
         Column {
             anchors.fill: parent
-            spacing: 10
+            spacing: 15
+            anchors.margins: 15
             
             // Header with controls
             Row {
@@ -109,9 +131,10 @@ ApplicationWindow {
                 spacing: 10
                 
                 Text {
-                    text: "Total Alerts: " + alertManager.alertCount
+                    text: "📊 Total Alerts: " + alertManager.alertCount
                     font.bold: true
-                    font.pixelSize: 14
+                    font.pixelSize: 16
+                    color: colorText
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 
@@ -162,7 +185,7 @@ ApplicationWindow {
                 delegate: Rectangle {
                     width: alertListView.width
                     height: 60
-                    color: index % 2 === 0 ? "#222222" : "#1a1a1a"
+                    color: index % 2 === 0 ? colorCard : colorCardAlt
                     
                     Row {
                         anchors.left: parent.left
@@ -181,17 +204,17 @@ ApplicationWindow {
                                 
                                 Text {
                                     text: model.timestamp || ""
-                                    color: "#aaaaaa"
+                                    color: colorTextSecondary
                                     font.pixelSize: 10
                                 }
                                 
                                 Text {
                                     text: "[" + (model.alertType || "") + "]"
                                     color: {
-                                        if (model.alertType === "motion") return "#ff6600"
-                                        if (model.alertType === "tripwire") return "#00ff00"
-                                        if (model.alertType === "roi") return "#ff6600"
-                                        return "#66aaff"
+                                        if (model.alertType === "motion") return colorWarning
+                                        if (model.alertType === "tripwire") return colorSuccess
+                                        if (model.alertType === "roi") return colorWarning
+                                        return colorAccent
                                     }
                                     font.pixelSize: 10
                                     font.bold: true
@@ -199,7 +222,7 @@ ApplicationWindow {
                                 
                                 Text {
                                     text: model.cameraName || "Unknown"
-                                    color: "white"
+                                    color: colorText
                                     font.pixelSize: 12
                                     font.bold: true
                                 }
@@ -207,7 +230,7 @@ ApplicationWindow {
                             
                             Text {
                                 text: model.description || ""
-                                color: "#cccccc"
+                                color: colorTextSecondary
                                 font.pixelSize: 11
                                 width: parent.width
                                 elide: Text.ElideRight
@@ -226,7 +249,16 @@ ApplicationWindow {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 60
-        color: "#2b2b2b"
+        color: colorSecondary
+        
+        // Bottom border line
+        Rectangle {
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: 1
+            color: colorBorder
+        }
         
         Row {
             anchors.left: parent.left
@@ -235,22 +267,22 @@ ApplicationWindow {
             spacing: 20
             
             Text {
-                text: "Qt Camera Surveillance"
-                color: "white"
+                text: "📹 Qt Camera Surveillance"
+                color: colorText
                 font.pixelSize: 18
                 font.bold: true
             }
             
             Text {
                 text: "Cameras: " + cameraManager.availableCameraCount
-                color: "#aaaaaa"
+                color: colorTextSecondary
                 font.pixelSize: 12
             }
             
             Text {
                 visible: !cameraPermissionHelper.hasPermission
                 text: "⚠ Camera permission required"
-                color: "orange"
+                color: colorWarning
                 font.pixelSize: 12
             }
         }
@@ -278,6 +310,379 @@ ApplicationWindow {
             Button {
                 text: "Alerts (" + alertManager.alertCount + ")"
                 onClicked: alertLogDialog.open()
+            }
+            
+            Button {
+                text: "Config"
+                onClicked: configDialog.open()
+            }
+        }
+    }
+    
+    // Camera Config Dialog
+    Dialog {
+        id: configDialog
+        title: "Camera Configuration"
+        width: 750
+        height: 650
+        anchors.centerIn: parent
+        modal: true
+        
+        property var cameraListModel: ListModel {
+            id: cameraListModel
+        }
+        
+        function refreshCameraList() {
+            cameraListModel.clear()
+            var cameras = configManager.getAllCameras()
+            for (var i = 0; i < cameras.length; i++) {
+                var cam = cameras[i]
+                cameraListModel.append({
+                    name: cam.name || "Unnamed Camera",
+                    deviceId: cam.deviceId || "",
+                    url: cam.url || "",
+                    enabled: cam.enabled !== undefined ? cam.enabled : true
+                })
+            }
+        }
+        
+        onOpened: {
+            refreshCameraList()
+        }
+        
+        Connections {
+            target: configManager
+            function onCamerasChanged() {
+                configDialog.refreshCameraList()
+            }
+        }
+        
+        Column {
+            anchors.fill: parent
+            spacing: 15
+            anchors.margins: 20
+            
+            Text {
+                text: "Camera Configurations"
+                font.bold: true
+                font.pixelSize: 18
+                color: colorText
+            }
+            
+            Text {
+                text: "Config file: " + configManager.configFilePath
+                font.pixelSize: 11
+                color: colorTextSecondary
+                wrapMode: Text.Wrap
+            }
+            
+            Rectangle {
+                width: parent.width
+                height: 350
+                color: colorCardAlt
+                border.color: colorBorder
+                border.width: 1
+                radius: 5
+                
+                ScrollView {
+                    anchors.fill: parent
+                    anchors.margins: 5
+                    clip: true
+                    
+                    ListView {
+                        id: configCameraList
+                        width: parent.width
+                        model: cameraListModel
+                        
+                        delegate: Rectangle {
+                            width: configCameraList.width
+                            height: 80
+                            color: index % 2 === 0 ? colorCard : colorCardAlt
+                            
+                            Row {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 15
+                                anchors.right: parent.right
+                                anchors.rightMargin: 15
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 15
+                                
+                                Column {
+                                    width: parent.width - 120
+                                    spacing: 8
+                                    
+                                    Text {
+                                        text: model.name
+                                        color: colorText
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                    }
+                                    
+                                    Text {
+                                        text: "Device ID: " + (model.deviceId || "N/A")
+                                        color: colorTextSecondary
+                                        font.pixelSize: 11
+                                        elide: Text.ElideMiddle
+                                    }
+                                    
+                                    Text {
+                                        visible: model.url && model.url !== ""
+                                        text: "URL: " + model.url
+                                        color: colorTextSecondary
+                                        font.pixelSize: 10
+                                        elide: Text.ElideMiddle
+                                    }
+                                }
+                                
+                                Button {
+                                    text: "Remove"
+                                    width: 100
+                                    onClicked: {
+                                        configManager.removeCamera(index)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Text {
+                text: "Cameras in config: " + configManager.cameraCount
+                font.pixelSize: 12
+                color: colorTextSecondary
+            }
+            
+            Row {
+                spacing: 10
+                anchors.horizontalCenter: parent.horizontalCenter
+                
+                Button {
+                    text: "➕ Add Camera"
+                    onClicked: addCameraConfigDialog.open()
+                }
+                
+                Button {
+                    text: "💾 Save Config"
+                    onClicked: {
+                        if (configManager.saveConfig()) {
+                            showSnapshotToast("Config saved successfully", true)
+                        } else {
+                            showSnapshotToast("Failed to save config", false)
+                        }
+                    }
+                }
+                
+                Button {
+                    text: "🔄 Load Config"
+                    onClicked: {
+                        if (configManager.loadConfig()) {
+                            refreshCameraList()
+                            loadCamerasFromConfig()
+                            showSnapshotToast("Config loaded successfully", true)
+                        } else {
+                            showSnapshotToast("Failed to load config", false)
+                        }
+                    }
+                }
+                
+                Button {
+                    text: "Close"
+                    onClicked: configDialog.close()
+                }
+            }
+        }
+    }
+    
+    // Add Camera Config Dialog
+    Dialog {
+        id: addCameraConfigDialog
+        title: "Add Camera to Config"
+        width: 700
+        height: 650
+        anchors.centerIn: parent
+        modal: true
+        
+        onOpened: {
+            // Refresh camera list when dialog opens
+            cameraManager.refreshCameras()
+            cameraSelectCombo.currentIndex = -1
+            configCameraNameField.text = ""
+            configDeviceIdField.text = ""
+            configUrlField.text = ""
+        }
+        
+        ScrollView {
+            anchors.fill: parent
+            clip: true
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            
+            Column {
+                width: addCameraConfigDialog.width - 40
+                spacing: 15
+                anchors.margins: 20
+                
+                Text {
+                    text: "Add Camera to Configuration"
+                    font.pixelSize: 16
+                    font.bold: true
+                    color: colorText
+                }
+                
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: colorBorder
+                }
+            
+                Text {
+                    text: "Step 1: Select a camera from the list below"
+                    font.pixelSize: 12
+                    color: colorTextSecondary
+                }
+            
+            ComboBox {
+                id: cameraSelectCombo
+                width: parent.width
+                height: 40
+                model: cameraManager
+                
+                displayText: currentIndex >= 0 
+                    ? cameraManager.getCameraDescription(currentIndex)
+                    : "📷 Select a camera..."
+                
+                delegate: ItemDelegate {
+                    width: cameraSelectCombo.width
+                    text: model.description || "Unknown Camera"
+                    highlighted: cameraSelectCombo.highlightedIndex === index
+                }
+                
+                onActivated: function(index) {
+                    if (index >= 0 && index < cameraManager.availableCameraCount) {
+                        var selectedId = cameraManager.getCameraId(index)
+                        var selectedName = cameraManager.getCameraDescription(index)
+                        configDeviceIdField.text = selectedId
+                        configCameraNameField.text = selectedName
+                        console.log("Selected camera:", selectedName, "ID:", selectedId)
+                    }
+                }
+            }
+            
+                Row {
+                    spacing: 10
+                    
+                    Text {
+                        text: "Available: " + cameraManager.availableCameraCount + " cameras"
+                        font.pixelSize: 11
+                        color: colorTextSecondary
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    
+                    Button {
+                        text: "🔄 Refresh"
+                        onClicked: {
+                            cameraManager.refreshCameras()
+                            cameraSelectCombo.currentIndex = -1
+                        }
+                    }
+                }
+                
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: colorBorder
+                }
+                
+                Text {
+                    text: "Step 2: Review and edit camera details"
+                    font.pixelSize: 12
+                    color: colorTextSecondary
+                }
+                
+                Text {
+                    text: "Camera Name:"
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: colorText
+                }
+                
+                TextField {
+                    id: configCameraNameField
+                    width: parent.width
+                    placeholderText: "Camera name (auto-filled when selected)"
+                }
+                
+                Text {
+                    text: "Device ID:"
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: colorText
+                }
+                
+                TextField {
+                    id: configDeviceIdField
+                    width: parent.width
+                    placeholderText: "Device ID (auto-filled when selected)"
+                    readOnly: true
+                }
+                
+                Text {
+                    text: "URL (optional, for IP cameras):"
+                    font.pixelSize: 12
+                    color: colorTextSecondary
+                }
+                
+                TextField {
+                    id: configUrlField
+                    width: parent.width
+                    placeholderText: "e.g., rtsp://192.168.1.100:554/stream"
+                }
+                
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: colorBorder
+                }
+            
+            Row {
+                spacing: 10
+                anchors.right: parent.right
+                
+                Button {
+                    text: "✅ Add to Config"
+                    onClicked: {
+                        var name = configCameraNameField.text.trim()
+                        var deviceId = configDeviceIdField.text.trim()
+                        var url = configUrlField.text.trim()
+                        
+                        if (deviceId === "") {
+                            showSnapshotToast("❌ Please select a camera from the dropdown", false)
+                            return
+                        }
+                        
+                        if (name === "") {
+                            name = "Camera " + (configManager.cameraCount + 1)
+                        }
+                        
+                        console.log("Adding camera to config:", name, deviceId, url)
+                        configManager.addCamera(name, url, deviceId)
+                        
+                        // Clear fields
+                        configCameraNameField.text = ""
+                        configDeviceIdField.text = ""
+                        configUrlField.text = ""
+                        cameraSelectCombo.currentIndex = -1
+                        
+                        addCameraConfigDialog.close()
+                        showSnapshotToast("✅ Camera added to config", true)
+                    }
+                }
+                
+                Button {
+                    text: "Cancel"
+                    onClicked: addCameraConfigDialog.close()
+                }
+            }
             }
         }
     }
@@ -382,7 +787,9 @@ ApplicationWindow {
         anchors.topMargin: 20
         width: 400
         height: 50
-        color: "#2b2b2b"
+        color: colorSecondary
+        border.color: colorBorder
+        border.width: 1
         radius: 5
         opacity: 0
         visible: opacity > 0
@@ -394,7 +801,7 @@ ApplicationWindow {
             
             Text {
                 text: toastNotification.text || ""
-                color: "white"
+                color: colorText
                 font.pixelSize: 14
             }
         }
@@ -416,14 +823,14 @@ ApplicationWindow {
     
     function showSnapshotToast(message, isSuccess) {
         toastNotification.text = message
-        toastNotification.color = isSuccess ? "#2b2b2b" : "#8b0000"
+        toastNotification.color = isSuccess ? colorSecondary : colorError
         toastNotification.opacity = 1
         toastTimer.restart()
     }
     
     function showAlertToast(message) {
         toastNotification.text = "⚠ " + message
-        toastNotification.color = "#ff6600"
+        toastNotification.color = colorWarning
         toastNotification.opacity = 1
         toastTimer.restart()
     }
@@ -437,6 +844,24 @@ ApplicationWindow {
                 isActive: false
             })
         }
+        
+        // Load cameras from config if available
+        loadCamerasFromConfig()
+    }
+    
+    function loadCamerasFromConfig() {
+        if (configManager.configFileExists()) {
+            var cameras = configManager.getAllCameras()
+            console.log("Loading", cameras.length, "cameras from config")
+            for (var i = 0; i < cameras.length && i < 4; i++) {
+                var cam = cameras[i]
+                // For now, we only support deviceId (local cameras)
+                // URL support for IP cameras can be added later
+                if (cam.deviceId && cam.deviceId !== "") {
+                    addCameraToGrid(cam.deviceId, cam.name || ("Camera " + (i + 1)), i)
+                }
+            }
+        }
     }
     
     // Functions
@@ -445,6 +870,9 @@ ApplicationWindow {
             cameraTilesModel.setProperty(tileIndex, "cameraId", cameraId)
             cameraTilesModel.setProperty(tileIndex, "cameraName", cameraName)
             cameraTilesModel.setProperty(tileIndex, "isActive", true)
+            
+            // Optionally save to config (user can disable this if they want)
+            // For now, we'll let users manage config manually via the Config dialog
         }
     }
     
