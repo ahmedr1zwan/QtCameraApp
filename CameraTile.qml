@@ -215,33 +215,43 @@ Rectangle {
                 var currentPoint = Qt.point(x, y)
                 var prevPoint = previousCentroid
                 
-                // Only check if we have a valid previous point (not initial (0,0))
+                var tileId = "tile_" + tile.tileIndex
+                var tripwires = tileTripwireManager.getAllTripwires(tileId)
+                
+                // Check tripwires using two methods for better detection:
+                // 1. Line crossing (for faster movements)
+                // 2. Proximity check (for slow movements that might miss the crossing)
                 if ((prevPoint.x > 0 || prevPoint.y > 0)) {
-                    // Calculate distance moved - use a very small threshold (0.2% of screen) for tripwires
-                    // This allows detection of slower movements while still filtering noise
+                    // Method 1: Check if movement line crosses tripwire (for any movement, even tiny)
                     var dx = currentPoint.x - prevPoint.x
                     var dy = currentPoint.y - prevPoint.y
                     var distance = Math.sqrt(dx * dx + dy * dy)
                     
-                    // Check tripwires with relaxed threshold - any movement above 0.2% of screen
-                    // The cooldown in tripwire manager will prevent spam
-                    if (distance > 0.002) {
-                        // Check all tripwires for this tile
-                        var tileId = "tile_" + tile.tileIndex
-                        var tripwires = tileTripwireManager.getAllTripwires(tileId)
-                        for (var i = 0; i < tripwires.length; i++) {
-                            var tw = tripwires[i]
-                            if (tw.enabled) {
-                                if (tileTripwireManager.checkTripwireCrossing(tw.id, prevPoint, currentPoint)) {
-                                    tile.tripwireCrossed(tw.id)
-                                }
+                    // Check crossing even for very small movements (removed threshold)
+                    // The cooldown will prevent spam
+                    for (var i = 0; i < tripwires.length; i++) {
+                        var tw = tripwires[i]
+                        if (tw.enabled) {
+                            if (tileTripwireManager.checkTripwireCrossing(tw.id, prevPoint, currentPoint)) {
+                                tile.tripwireCrossed(tw.id)
                             }
                         }
                     }
                 }
                 
+                // Method 2: Proximity check - if current point is very close to tripwire line
+                // This catches slow-moving objects that might have "missed" the crossing
+                for (var i = 0; i < tripwires.length; i++) {
+                    var tw = tripwires[i]
+                    if (tw.enabled) {
+                        // Use proximity check with 2% threshold (very close to line)
+                        if (tileTripwireManager.checkTripwireProximity(tw.id, currentPoint, 0.02)) {
+                            tile.tripwireCrossed(tw.id)
+                        }
+                    }
+                }
+                
                 // Check all ROIs for this tile (always check when motion detected)
-                var tileId = "tile_" + tile.tileIndex
                 var rois = tileTripwireManager.getAllROIs(tileId)
                 for (var j = 0; j < rois.length; j++) {
                     var roi = rois[j]

@@ -172,6 +172,54 @@ bool TripwireManager::checkTripwireCrossing(const QString &tripwireId, const QPo
     return false;
 }
 
+bool TripwireManager::checkTripwireProximity(const QString &tripwireId, const QPointF &point, double threshold)
+{
+    int index = findTripwireIndex(tripwireId);
+    if (index < 0 || !m_tripwires[index].enabled)
+        return false;
+    
+    const Tripwire &tripwire = m_tripwires[index];
+    
+    // Calculate distance from point to line segment using vector math
+    QPointF lineVec = tripwire.endPoint - tripwire.startPoint;
+    QPointF pointVec = point - tripwire.startPoint;
+    
+    double lineLengthSq = lineVec.x() * lineVec.x() + lineVec.y() * lineVec.y();
+    if (lineLengthSq < 0.0001)  // Very short line, skip
+        return false;
+    
+    // Project point onto line
+    double t = (pointVec.x() * lineVec.x() + pointVec.y() * lineVec.y()) / lineLengthSq;
+    
+    // Clamp t to [0, 1] to stay within segment
+    t = qBound(0.0, t, 1.0);
+    
+    // Find closest point on line segment
+    QPointF closestPoint = tripwire.startPoint + QPointF(t * lineVec.x(), t * lineVec.y());
+    
+    // Calculate distance from point to closest point on line
+    double dx = point.x() - closestPoint.x();
+    double dy = point.y() - closestPoint.y();
+    double distance = qSqrt(dx * dx + dy * dy);
+    
+    // If within threshold, trigger crossing
+    if (distance <= threshold) {
+        // Cooldown check
+        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+        qint64 timeSinceLastCross = currentTime - m_tripwires[index].lastCrossTime;
+        
+        if (timeSinceLastCross > 1500) {
+            m_tripwires[index].crossCount++;
+            m_tripwires[index].lastCrossTime = currentTime;
+            emit tripwireCrossed(tripwireId, closestPoint);
+            qDebug() << "Tripwire proximity triggered:" << tripwireId << "distance:" << distance << "at" << point;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
 bool TripwireManager::checkROIEntry(const QString &roiId, const QPointF &point)
 {
     int index = findROIIndex(roiId);
@@ -182,11 +230,11 @@ bool TripwireManager::checkROIEntry(const QString &roiId, const QPointF &point)
     bool isInside = pointInPolygon(point, roi.polygon);
     
     if (isInside && !roi.motionInside) {
-        // Cooldown: prevent multiple alerts within 2 seconds
+        // Cooldown: prevent multiple alerts within 1.5 seconds (reduced for better responsiveness)
         qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
         qint64 timeSinceLastEntry = currentTime - m_rois[index].lastEntryTime;
         
-        if (timeSinceLastEntry > 2000) {  // 2 second cooldown
+        if (timeSinceLastEntry > 1500) {  // 1.5 second cooldown
             roi.motionInside = true;
             m_rois[index].lastEntryTime = currentTime;
             emit roiEntered(roiId, point);

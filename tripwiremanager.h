@@ -61,6 +61,7 @@ public:
     
     // Detection methods (called from motion detector or object tracker)
     Q_INVOKABLE bool checkTripwireCrossing(const QString &tripwireId, const QPointF &from, const QPointF &to);
+    Q_INVOKABLE bool checkTripwireProximity(const QString &tripwireId, const QPointF &point, double threshold = 0.02);
     Q_INVOKABLE bool checkROIEntry(const QString &roiId, const QPointF &point);
     Q_INVOKABLE bool isPointInROI(const QString &roiId, const QPointF &point);
     
