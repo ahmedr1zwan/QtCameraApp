@@ -9,9 +9,13 @@ Rectangle {
     property string cameraName: "Camera"
     property bool isActive: false
     property int tileIndex: 0
-    property int currentFps: 0
+    readonly property int currentFps: analyticsEngine.framesPerSecond
     property bool motionDetectionEnabled: false
-    property double motionSensitivity: 0.3  // 0.0 to 1.0
+    property double motionSensitivity: 0.55
+    property bool objectDetectionEnabled: false
+    property string yoloModelPath: ""
+    property string yoloLabelsPath: ":/QtCameraApp/assets/coco.names"
+    property double objectConfidenceThreshold: 0.45
     property bool tripwireDrawingMode: false
     property bool roiDrawingMode: false
     property bool deleteMode: false  // Enable delete mode to remove tripwires/ROIs
@@ -38,6 +42,7 @@ Rectangle {
     signal snapshotSaved(string filePath)
     signal snapshotError(string error)
     signal motionDetected(double level)
+    signal analyticsEvent(string eventType, string description, string snapshotPath)
     signal tripwireCrossed(string tripwireId)
     signal roiEntered(string roiId)
     signal drawingModeChanged(int tileIndex, bool enabled)  // Signal when drawing mode changes
@@ -52,6 +57,50 @@ Rectangle {
         console.log("Taking snapshot, saving to:", filePath)
         imageCapture.captureToFile(filePath)
     }
+
+    property bool eventCapturePending: false
+    property string pendingEventType: ""
+    property string pendingEventDescription: ""
+
+    function recordEvent(eventType, description) {
+        if (!camera.active || eventCapturePending) {
+            analyticsEvent(eventType, description, "")
+            return
+        }
+        eventCapturePending = true
+        pendingEventType = eventType
+        pendingEventDescription = description
+        imageCapture.captureToFile(snapshotHelper.generateSnapshotFilename(cameraName + "_" + eventType))
+    }
+
+    function evaluateBoundaryPoint(currentPoint, sourceKey) {
+        if (!tileTripwireManager || currentPoint.x < 0 || currentPoint.y < 0)
+            return
+
+        var tileId = "tile_" + tile.tileIndex
+        var previous = trackedPoints[sourceKey]
+        if (previous) {
+            var tripwires = tileTripwireManager.getAllTripwires(tileId)
+            for (var i = 0; i < tripwires.length; ++i) {
+                if (tripwires[i].enabled
+                        && tileTripwireManager.checkTripwireCrossing(
+                            tripwires[i].id, previous, currentPoint)) {
+                    tile.tripwireCrossed(tripwires[i].id)
+                }
+            }
+        }
+        trackedPoints[sourceKey] = currentPoint
+
+        var rois = tileTripwireManager.getAllROIs(tileId)
+        for (var j = 0; j < rois.length; ++j) {
+            if (rois[j].enabled
+                    && tileTripwireManager.checkROIEntry(rois[j].id, currentPoint)) {
+                tile.roiEntered(rois[j].id)
+            }
+        }
+    }
+
+    property var trackedPoints: ({})
     
     // Visual feedback for snapshot
     property bool snapshotFlash: false
@@ -72,14 +121,22 @@ Rectangle {
     Connections {
         target: imageCapture
         function onImageSaved(id, path) {
-            console.log("Snapshot saved successfully:", path)
-            tile.snapshotSaved(path)
-            // Flash effect
+            if (tile.eventCapturePending) {
+                tile.analyticsEvent(tile.pendingEventType, tile.pendingEventDescription, path)
+                tile.eventCapturePending = false
+                tile.pendingEventType = ""
+                tile.pendingEventDescription = ""
+            } else {
+                tile.snapshotSaved(path)
+            }
             tile.snapshotFlash = true
             flashTimer.start()
         }
         function onErrorOccurred(id, error, errorString) {
-            console.log("Snapshot error:", errorString)
+            if (tile.eventCapturePending) {
+                tile.analyticsEvent(tile.pendingEventType, tile.pendingEventDescription, "")
+                tile.eventCapturePending = false
+            }
             tile.snapshotError(errorString)
         }
     }
@@ -93,8 +150,8 @@ Rectangle {
     }
     
     color: colorCard
-    border.color: motionDetector.motionDetected ? colorError : colorBorder
-    border.width: motionDetector.motionDetected ? 3 : 1
+    border.color: analyticsEngine.motionDetected ? colorError : colorBorder
+    border.width: analyticsEngine.motionDetected ? 3 : 1
     radius: 8
     
     // Motion detection indicator overlay
@@ -104,11 +161,11 @@ Rectangle {
         border.color: colorError
         border.width: 3
         radius: 8
-        visible: motionDetector.motionDetected
+        visible: analyticsEngine.motionDetected
         opacity: 0.6
         
         SequentialAnimation on opacity {
-            running: motionDetector.motionDetected
+            running: analyticsEngine.motionDetected
             loops: Animation.Infinite
             NumberAnimation { to: 0.3; duration: 500 }
             NumberAnimation { to: 0.6; duration: 500 }
@@ -174,6 +231,7 @@ Rectangle {
             tripwireDrawingMode = false
             roiDrawingMode = false
             deleteMode = false
+            trackedPoints = ({})
         }
         // When cameraId is empty, camera will be inactive automatically
         // due to the active property binding, so we don't need to set cameraDevice
@@ -203,107 +261,30 @@ Rectangle {
         imageCapture: imageCapture
     }
     
-    // Properties for tripwire/ROI detection
-    // Use (-1, -1) as sentinel for "no motion" to avoid conflict with top-left corner (0, 0)
-    property var previousCentroid: Qt.point(-1, -1)
-    property var lastCheckTime: 0
-    
-    // Motion detector
-    MotionDetector {
-        id: motionDetector
-        enabled: tile.motionDetectionEnabled && camera.active
+    AnalyticsEngine {
+        id: analyticsEngine
+        motionEnabled: tile.motionDetectionEnabled && camera.active
+        objectDetectionEnabled: tile.objectDetectionEnabled && camera.active
         sensitivity: tile.motionSensitivity
+        confidenceThreshold: tile.objectConfidenceThreshold
+        modelPath: tile.yoloModelPath
+        labelsPath: tile.yoloLabelsPath
         
         onMotionDetectedSignal: function(level) {
             console.log("Motion detected on", cameraName, "Level:", level)
             tile.motionDetected(level)
         }
+
+        onObjectDetected: function(label, confidence, centerX, centerY) {
+            var center = Qt.point(centerX, centerY)
+            tile.evaluateBoundaryPoint(center, "object:" + label)
+            tile.recordEvent("object", label + " detected (" + Math.round(confidence * 100) + "%)")
+        }
         
         onMotionCentroidChanged: function(x, y) {
-            // Update previous centroid for line crossing detection
             var currentPoint = Qt.point(x, y)
-            
-            // Use (-1, -1) as sentinel for "no motion" to avoid conflict with top-left corner (0, 0)
-            if (tileTripwireManager && !(currentPoint.x === -1 && currentPoint.y === -1)) {
-                var tileId = "tile_" + tile.tileIndex
-                
-                // Check line crossing for tripwires (catches fast movements)
-                // Only if motion detection is enabled and motion is detected
-                // Check that previous centroid is valid (not sentinel value)
-                if (tile.motionDetectionEnabled && motionDetected && !(tile.previousCentroid.x === -1 && tile.previousCentroid.y === -1)) {
-                    var prevPoint = tile.previousCentroid
-                    var tripwires = tileTripwireManager.getAllTripwires(tileId)
-                    
-                    for (var i = 0; i < tripwires.length; i++) {
-                        var tw = tripwires[i]
-                        if (tw.enabled) {
-                            if (tileTripwireManager.checkTripwireCrossing(tw.id, prevPoint, currentPoint)) {
-                                tile.tripwireCrossed(tw.id)
-                            }
-                        }
-                    }
-                }
-                
-                // Check ROIs immediately when centroid changes - ROI works independently
-                // This ensures ROI detection works even with slow movements
-                var rois = tileTripwireManager.getAllROIs(tileId)
-                for (var j = 0; j < rois.length; j++) {
-                    var roi = rois[j]
-                    if (roi.enabled) {
-                        if (tileTripwireManager.checkROIEntry(roi.id, currentPoint)) {
-                            tile.roiEntered(roi.id)
-                        }
-                    }
-                }
-            }
-            
-            // Always update previous centroid
-            tile.previousCentroid = currentPoint
-        }
-    }
-    
-    // Timer to continuously check tripwires/ROIs when motion is active
-    // Check ROI even when motion is below threshold - ROI should work independently
-    Timer {
-        id: tripwireCheckTimer
-        interval: 100  // Check every 100ms when there's any motion
-        running: camera.active && motionDetector.motionLevel > 0.01  // Run on any motion, not just above threshold
-        repeat: true
-        onTriggered: {
-            // Get current centroid from motion detector
-            var centroid = motionDetector.motionCentroid
-            // Check that centroid is not the sentinel value (-1, -1) - valid centroids can be at edges (x=0 or y=0)
-            if (tileTripwireManager && !(centroid.x === -1 && centroid.y === -1)) {
-                var currentPoint = Qt.point(centroid.x, centroid.y)
-                var tileId = "tile_" + tile.tileIndex
-                
-                // Check all tripwires with proximity (more reliable for slow movements)
-                // Only check if motion detection is enabled
-                if (tile.motionDetectionEnabled) {
-                    var tripwires = tileTripwireManager.getAllTripwires(tileId)
-                    for (var i = 0; i < tripwires.length; i++) {
-                        var tw = tripwires[i]
-                        if (tw.enabled) {
-                            // Use larger proximity threshold (5% of screen) for better detection
-                            if (tileTripwireManager.checkTripwireProximity(tw.id, currentPoint, 0.05)) {
-                                tile.tripwireCrossed(tw.id)
-                            }
-                        }
-                    }
-                }
-                
-                // Check all ROIs - ROI works independently of motion detection toggle
-                // This allows ROI to work even when motion detection is disabled
-                var rois = tileTripwireManager.getAllROIs(tileId)
-                for (var j = 0; j < rois.length; j++) {
-                    var roi = rois[j]
-                    if (roi.enabled) {
-                        if (tileTripwireManager.checkROIEntry(roi.id, currentPoint)) {
-                            tile.roiEntered(roi.id)
-                        }
-                    }
-                }
-            }
+            if (currentPoint.x >= 0 && currentPoint.y >= 0)
+                tile.evaluateBoundaryPoint(currentPoint, "motion")
         }
     }
     
@@ -325,7 +306,7 @@ Rectangle {
         function connectVideoSink() {
             // Try to connect videoSink - it may not be available immediately
             if (videoSink) {
-                motionDetector.setVideoSink(videoSink)
+                analyticsEngine.setVideoSink(videoSink)
             } else {
                 // Retry after a short delay if videoSink isn't ready yet
                 videoSinkConnectTimer.start()
@@ -340,7 +321,7 @@ Rectangle {
         repeat: false
         onTriggered: {
             if (videoOutput.videoSink) {
-                motionDetector.setVideoSink(videoOutput.videoSink)
+                analyticsEngine.setVideoSink(videoOutput.videoSink)
             }
         }
     }
@@ -356,49 +337,29 @@ Rectangle {
         }
     }
     
-    // FPS calculation timer
-    Timer {
-        id: fpsTimer
-        interval: 1000  // Update every second
-        running: camera.active
-        repeat: true
-        onTriggered: {
-            // Estimate FPS based on camera status
-            // Since we can't directly count frames, we'll show a reasonable estimate
-            // or use a placeholder that indicates the camera is streaming
-            if (camera.active && camera.cameraStatus === Camera.ActiveStatus) {
-                // For now, show estimated FPS (typically 30 for most cameras)
-                // In a real implementation, you'd count actual frame updates
-                tile.currentFps = 30  // Placeholder - would need frame counting for accurate FPS
-            } else {
-                tile.currentFps = 0
-            }
-        }
-    }
-    
-    // Start FPS timer when camera becomes active
-    Connections {
-        target: camera
-        function onActiveChanged() {
-            if (camera.active) {
-                fpsTimer.start()
-            } else {
-                fpsTimer.stop()
-                tile.currentFps = 0
-            }
-        }
-    }
-    
     // Tripwire/ROI overlay
     TripwireOverlay {
         id: tripwireOverlay
-        anchors.fill: parent
+        x: videoOutput.x + videoOutput.contentRect.x
+        y: videoOutput.y + videoOutput.contentRect.y
+        width: videoOutput.contentRect.width
+        height: videoOutput.contentRect.height
         tripwireManager: tileTripwireManager
         tileId: "tile_" + tile.tileIndex  // Use tileIndex instead of cameraId for tile-specific tripwires
         drawingMode: tile.tripwireDrawingMode || tile.roiDrawingMode
         drawingType: tile.tripwireDrawingMode ? "tripwire" : "roi"
         deleteMode: tile.deleteMode || false
         z: 50  // Below controls but above video
+    }
+
+    DetectionOverlay {
+        x: videoOutput.x + videoOutput.contentRect.x
+        y: videoOutput.y + videoOutput.contentRect.y
+        width: videoOutput.contentRect.width
+        height: videoOutput.contentRect.height
+        detections: analyticsEngine.detections
+        visible: tile.objectDetectionEnabled
+        z: 45
     }
     
     // Overlay with controls
@@ -482,6 +443,31 @@ Rectangle {
                     ToolTip.visible: hovered
                     ToolTip.text: motionDetectionEnabled ? "Disable Motion" : "Enable Motion"
                     onClicked: tile.motionDetectionEnabled = !tile.motionDetectionEnabled
+                }
+
+                Button {
+                    width: 46
+                    height: 32
+                    enabled: camera.active && analyticsEngine.modelReady
+                    background: Rectangle {
+                        color: objectDetectionEnabled ? colorSuccess : (parent.pressed ? colorHover : colorCard)
+                        radius: 4
+                        border.color: objectDetectionEnabled ? colorSuccess : colorBorder
+                        border.width: 1
+                    }
+                    contentItem: Text {
+                        text: "YOLO"
+                        color: colorText
+                        font.pixelSize: 9
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: analyticsEngine.modelReady
+                                  ? (objectDetectionEnabled ? "Disable object detection" : "Enable object detection")
+                                  : analyticsEngine.modelStatus
+                    onClicked: tile.objectDetectionEnabled = !tile.objectDetectionEnabled
                 }
                 
                 // Tripwire Button
@@ -683,11 +669,19 @@ Rectangle {
                 }
                 
                 Text {
-                    visible: motionDetectionEnabled && motionDetector.motionLevel > 0
-                    text: "• Motion: " + Math.round(motionDetector.motionLevel * 100) + "%"
-                    color: motionDetector.motionDetected ? colorError : colorTextSecondary
+                    visible: motionDetectionEnabled && analyticsEngine.motionLevel > 0
+                    text: "• Motion: " + Math.round(analyticsEngine.motionLevel * 100) + "%"
+                    color: analyticsEngine.motionDetected ? colorError : colorTextSecondary
                     font.pixelSize: 11
-                    font.bold: motionDetector.motionDetected
+                    font.bold: analyticsEngine.motionDetected
+                }
+
+                Text {
+                    visible: objectDetectionEnabled
+                    text: "• Objects: " + analyticsEngine.detections.length
+                    color: colorSuccess
+                    font.pixelSize: 11
+                    font.bold: true
                 }
             }
             
@@ -845,4 +839,3 @@ Rectangle {
         }
     }
 }
-

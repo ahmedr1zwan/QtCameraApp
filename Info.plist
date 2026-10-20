@@ -3,9 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>NSCameraUsageDescription</key>
-    <string>This app needs access to your camera for surveillance and monitoring purposes.</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>This app may need access to your microphone for audio recording.</string>
+    <string>Sentinel Vision uses camera access to display and analyze selected video streams.</string>
 </dict>
 </plist>
-

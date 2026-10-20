@@ -242,13 +242,7 @@ bool TripwireManager::checkROIEntry(const QString &roiId, const QPointF &point)
     ROI &roi = m_rois[index];
     bool isInside = pointInPolygon(point, roi.polygon);
     
-    // Debug: log ROI checks periodically
-    static qint64 lastDebugTime = 0;
     qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
-    if (currentTime - lastDebugTime > 2000) {  // Debug every 2 seconds
-        qDebug() << "ROI check:" << roiId << "point:" << point << "inside:" << isInside << "motionInside:" << roi.motionInside;
-        lastDebugTime = currentTime;
-    }
     
     if (isInside && !roi.motionInside) {
         // Reduced cooldown for better responsiveness
@@ -258,7 +252,7 @@ bool TripwireManager::checkROIEntry(const QString &roiId, const QPointF &point)
             roi.motionInside = true;
             m_rois[index].lastEntryTime = currentTime;
             emit roiEntered(roiId, point);
-            qDebug() << "✓ ROI entered:" << roiId << "at" << point;
+            qDebug() << "ROI entered:" << roiId << "at" << point;
             return true;
         } else {
             qDebug() << "ROI entry ignored (cooldown):" << roiId << "time since last:" << timeSinceLastEntry;
@@ -386,4 +380,3 @@ int TripwireManager::findROIIndex(const QString &id)
     }
     return -1;
 }
-

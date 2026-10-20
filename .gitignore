@@ -80,3 +80,8 @@ CMakeLists.txt.user*
 .rcc/
 .uic/
 /build*/
+
+# Runtime artifacts
+*.onnx
+Snapshots/
+Exports/

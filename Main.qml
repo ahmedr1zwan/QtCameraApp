@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import QtMultimedia
 import QtCameraApp
 
@@ -10,6 +11,10 @@ ApplicationWindow {
     height: 900
     visible: true
     title: qsTr("Qt Camera Surveillance - Multi-Camera Grid")
+
+    property string yoloModelPath: ""
+    property string yoloLabelsPath: ":/QtCameraApp/assets/coco.names"
+    property double yoloConfidenceThreshold: 0.45
     
     // Dark Blue Theme Colors
     readonly property color colorPrimary: "#1a2332"      // Dark blue background
@@ -242,6 +247,116 @@ ApplicationWindow {
         }
     }
 
+    Dialog {
+        id: analyticsDialog
+        title: "Video analytics"
+        width: 640
+        height: 440
+        anchors.centerIn: parent
+        modal: true
+
+        onOpened: {
+            modelPathField.text = window.yoloModelPath
+            labelsPathField.text = window.yoloLabelsPath
+            confidenceSlider.value = window.yoloConfidenceThreshold
+        }
+
+        Column {
+            anchors.fill: parent
+            anchors.margins: 20
+            spacing: 14
+
+            Text {
+                text: "YOLO object detection"
+                color: colorText
+                font.pixelSize: 18
+                font.bold: true
+            }
+
+            Text {
+                width: parent.width
+                text: "Select an ONNX export (YOLOv5 or YOLOv8). Each active camera can then enable inference from its YOLO button."
+                color: colorTextSecondary
+                wrapMode: Text.Wrap
+            }
+
+            Text { text: "Model"; color: colorText; font.bold: true }
+            Row {
+                width: parent.width
+                spacing: 10
+                TextField {
+                    id: modelPathField
+                    width: parent.width - browseModelButton.width - 10
+                    placeholderText: "/path/to/yolov8n.onnx"
+                }
+                Button {
+                    id: browseModelButton
+                    text: "Browse…"
+                    onClicked: modelFileDialog.open()
+                }
+            }
+
+            Text { text: "Class labels"; color: colorText; font.bold: true }
+            Row {
+                width: parent.width
+                spacing: 10
+                TextField {
+                    id: labelsPathField
+                    width: parent.width - browseLabelsButton.width - 10
+                    placeholderText: "Bundled COCO labels"
+                }
+                Button {
+                    id: browseLabelsButton
+                    text: "Browse…"
+                    onClicked: labelsFileDialog.open()
+                }
+            }
+
+            Text {
+                text: "Confidence threshold: " + Math.round(confidenceSlider.value * 100) + "%"
+                color: colorText
+                font.bold: true
+            }
+            Slider {
+                id: confidenceSlider
+                width: parent.width
+                from: 0.1
+                to: 0.9
+                stepSize: 0.05
+            }
+
+            Row {
+                anchors.right: parent.right
+                spacing: 10
+                Button { text: "Cancel"; onClicked: analyticsDialog.close() }
+                Button {
+                    text: "Apply"
+                    onClicked: {
+                        window.yoloModelPath = modelPathField.text.trim()
+                        window.yoloLabelsPath = labelsPathField.text.trim()
+                        window.yoloConfidenceThreshold = confidenceSlider.value
+                        analyticsDialog.close()
+                        showSnapshotToast("Analytics settings applied", true)
+                    }
+                }
+            }
+        }
+    }
+
+    FileDialog {
+        id: modelFileDialog
+        title: "Select a YOLO ONNX model"
+        nameFilters: ["ONNX models (*.onnx)"]
+        onAccepted: modelPathField.text = selectedFile
+    }
+
+    FileDialog {
+        id: labelsFileDialog
+        title: "Select class labels"
+        nameFilters: ["Text files (*.txt *.names)", "All files (*)"]
+        onAccepted: labelsPathField.text = selectedFile
+    }
+
     // Top status bar
     Rectangle {
         id: statusBar
@@ -310,6 +425,11 @@ ApplicationWindow {
             Button {
                 text: "Alerts (" + alertManager.alertCount + ")"
                 onClicked: alertLogDialog.open()
+            }
+
+            Button {
+                text: yoloModelPath === "" ? "Analytics: setup" : "Analytics"
+                onClicked: analyticsDialog.open()
             }
             
             Button {
@@ -710,6 +830,9 @@ ApplicationWindow {
             isActive: model.isActive || false
             tileIndex: index
             tileTripwireManager: tripwireManager
+            yoloModelPath: window.yoloModelPath
+            yoloLabelsPath: window.yoloLabelsPath
+            objectConfidenceThreshold: window.yoloConfidenceThreshold
             
             onRemoveRequested: function() {
                 console.log("Remove requested for tile index:", tileIndex)
@@ -741,40 +864,27 @@ ApplicationWindow {
             }
             
             onMotionDetected: function(level) {
-                // Take snapshot automatically when motion is detected
-                var snapshotPath = snapshotHelper.generateSnapshotFilename(model.cameraName || "Camera")
-                // Note: We can't directly capture here, but we can log the alert
-                // The snapshot would need to be triggered separately
-                alertManager.addAlert(
-                    model.cameraName || "Camera " + (index + 1),
-                    model.cameraId || "",
-                    "motion",
-                    "Motion detected: " + Math.round(level * 100) + "%",
-                    ""  // Snapshot path would go here if we auto-capture
-                )
-                showAlertToast("Motion detected on " + (model.cameraName || "Camera"))
+                cameraTileDelegate.recordEvent(
+                    "motion", "Motion detected: " + Math.round(level * 100) + "%")
             }
             
             onTripwireCrossed: function(tripwireId) {
-                alertManager.addAlert(
-                    model.cameraName || "Camera " + (index + 1),
-                    model.cameraId || "",
-                    "tripwire",
-                    "Tripwire crossed: " + tripwireId,
-                    ""
-                )
-                showAlertToast("Tripwire crossed on " + (model.cameraName || "Camera"))
+                cameraTileDelegate.recordEvent("tripwire", "Tripwire crossed: " + tripwireId)
             }
             
             onRoiEntered: function(roiId) {
+                cameraTileDelegate.recordEvent("roi", "Activity entered ROI: " + roiId)
+            }
+
+            onAnalyticsEvent: function(eventType, description, snapshotPath) {
                 alertManager.addAlert(
                     model.cameraName || "Camera " + (index + 1),
                     model.cameraId || "",
-                    "roi",
-                    "Motion entered ROI: " + roiId,
-                    ""
+                    eventType,
+                    description,
+                    snapshotPath
                 )
-                showAlertToast("ROI entered on " + (model.cameraName || "Camera"))
+                showAlertToast(eventType.toUpperCase() + " · " + (model.cameraName || "Camera"))
             }
         }
     }

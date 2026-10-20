@@ -6,7 +6,7 @@
 #include "camerapermissionhelper.h"
 #include "cameramanager.h"
 #include "snapshothelper.h"
-#include "motiondetector.h"
+#include "analyticsengine.h"
 #include "alertmanager.h"
 #include "tripwiremanager.h"
 #include "configmanager.h"
@@ -30,8 +30,7 @@ int main(int argc, char *argv[])
     // Create alert manager
     AlertManager alertManager;
     
-    // Create tripwire/ROI manager (one per camera tile, but we'll create a global one for now)
-    // In a full implementation, each tile would have its own manager
+    // The manager stores per-tile rules; every lookup is scoped by tile ID.
     TripwireManager tripwireManager;
     
     // Create config manager
@@ -40,7 +39,7 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     
     // Register types for QML
-    qmlRegisterType<MotionDetector>("QtCameraApp", 1, 0, "MotionDetector");
+    qmlRegisterType<AnalyticsEngine>("QtCameraApp", 1, 0, "AnalyticsEngine");
     
     // Register helpers for QML
     engine.rootContext()->setContextProperty("cameraPermissionHelper", &permissionHelper);

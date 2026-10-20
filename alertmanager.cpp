@@ -8,6 +8,14 @@
 #include <QJsonObject>
 #include <QDebug>
 
+namespace {
+QString csvField(QString value)
+{
+    value.replace('"', QStringLiteral("\"\""));
+    return QStringLiteral("\"") + value + QStringLiteral("\"");
+}
+}
+
 AlertManager::AlertManager(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -49,6 +57,7 @@ QHash<int, QByteArray> AlertManager::roleNames() const
     QHash<int, QByteArray> roles;
     roles[TimestampRole] = "timestamp";
     roles[CameraNameRole] = "cameraName";
+    roles[CameraIdRole] = "cameraId";
     roles[AlertTypeRole] = "alertType";
     roles[DescriptionRole] = "description";
     roles[SnapshotPathRole] = "snapshotPath";
@@ -65,14 +74,13 @@ void AlertManager::addAlert(const QString &cameraName, const QString &cameraId,
                      alertType, description, snapshotPath);
     m_alerts.prepend(alert);  // Add to beginning (newest first)
     
-    // Limit number of alerts
+    endInsertRows();
+
     if (m_alerts.size() > MAX_ALERTS) {
         beginRemoveRows(QModelIndex(), MAX_ALERTS, m_alerts.size() - 1);
         m_alerts.remove(MAX_ALERTS, m_alerts.size() - MAX_ALERTS);
         endRemoveRows();
     }
-    
-    endInsertRows();
     
     emit alertsChanged();
     emit newAlert(cameraName, alertType);
@@ -103,12 +111,12 @@ bool AlertManager::exportToCSV(const QString &filePath)
     
     // Write data
     for (const AlertEntry &alert : m_alerts) {
-        out << alert.timestamp.toString(Qt::ISODate) << ","
-            << "\"" << alert.cameraName << "\","
-            << "\"" << alert.cameraId << "\","
-            << alert.alertType << ","
-            << "\"" << alert.description << "\","
-            << "\"" << alert.snapshotPath << "\"\n";
+        out << csvField(alert.timestamp.toString(Qt::ISODateWithMs)) << ","
+            << csvField(alert.cameraName) << ","
+            << csvField(alert.cameraId) << ","
+            << csvField(alert.alertType) << ","
+            << csvField(alert.description) << ","
+            << csvField(alert.snapshotPath) << "\n";
     }
     
     file.close();
@@ -162,4 +170,3 @@ QString AlertManager::getDefaultExportPath() const
     
     return exportDir;
 }
-
