@@ -2,11 +2,17 @@
 #define CAMERAPERMISSIONHELPER_H
 
 #include <QObject>
-#include <QPermission>
+#include <QtGlobal>
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+#include <QPermission>
+#endif
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 QT_BEGIN_NAMESPACE
 class QCameraPermission;
 QT_END_NAMESPACE
+#endif
 
 class CameraPermissionHelper : public QObject
 {
@@ -27,4 +33,3 @@ private:
 };
 
 #endif // CAMERAPERMISSIONHELPER_H
-
