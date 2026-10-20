@@ -9,7 +9,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 REQUIRED COMPONENTS Quick Multimedia QuickControls2)
 find_package(OpenCV 4.5 REQUIRED COMPONENTS core dnn imgproc video)
-qt_policy(SET QTP0001 NEW)
+if(COMMAND qt_policy)
+    qt_policy(SET QTP0001 NEW)
+endif()
 
 qt_add_executable(appQtCameraApp
     main.cpp
